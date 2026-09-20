@@ -40,6 +40,7 @@ def main() -> None:
                 201,
             )
             customer_id = customer["id"]
+            print("POST /api/v1/users -> 201 (PostgreSQL account)")
             customer_login = require(
                 client.post("/api/v1/auth/login", json={"email": email, "password": password}),
                 200,
@@ -49,6 +50,7 @@ def main() -> None:
                 client.get(f"/api/v1/users/{customer_id}", headers=customer_headers), 200
             )
             assert profile["id"] == customer_id
+            print("GET /api/v1/users/{id} -> 200 (authorized PostgreSQL read)")
 
             merchant_login = require(
                 client.post(
@@ -73,6 +75,7 @@ def main() -> None:
                 201,
             )
             product_id = product["id"]
+            print("POST /api/v1/products -> 201 (MongoDB catalog + PostgreSQL inventory)")
             catalog = require(
                 client.get(
                     "/api/v1/products",
@@ -81,6 +84,8 @@ def main() -> None:
                 200,
             )
             assert catalog["total"] == 1 and catalog["items"][0]["id"] == product_id
+            assert catalog["items"][0]["attributes"]["spice_level"] == "medium"
+            print("GET /api/v1/products -> 200 (paginated MongoDB catalog)")
 
             order = require(
                 client.post(
@@ -100,11 +105,18 @@ def main() -> None:
                     "SELECT quantity FROM inventory WHERE product_id = %s", (product_id,)
                 ).fetchone()[0]
             assert stock == 2
+            print("POST /api/v1/orders -> 201 (MongoDB price read; PostgreSQL stock 3 -> 2)")
             cancelled = require(
                 client.post(f"/api/v1/orders/{order['id']}/cancel", headers=customer_headers),
                 200,
             )
             assert cancelled["status"] == "CANCELLED"
+            with psycopg.connect(database_url) as connection:
+                restored_stock = connection.execute(
+                    "SELECT quantity FROM inventory WHERE product_id = %s", (product_id,)
+                ).fetchone()[0]
+            assert restored_stock == 3
+            print("POST /api/v1/orders/{id}/cancel -> 200 (PostgreSQL stock restored to 3)")
             print("CP1 smoke test passed: Users, Products, Orders, and cross-database stock")
     finally:
         if product_id is not None:
