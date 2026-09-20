@@ -1,20 +1,18 @@
-# Sprint 1 backlog
+**Backlog ที่นำไปเปิด Issue ได้ทันที**
 
-Workflow: Todo → Doing → Review → Done. Each person should have one main task in Doing at a time. This split assumes three people; replace the role labels with real names.
+| ID       | งาน                                       | เสร็จเมื่อ                                         |
+| -------- | ----------------------------------------- | -------------------------------------------------- |
+| SETUP-01 | สร้าง monorepo และ Compose                | เปิด `api`, `frontend`, `postgres`, `mongo` ได้    |
+| SETUP-02 | ทำ health checks และ environment template | ไม่มี secrets ใน Git และ API รอ DB พร้อม           |
+| DB-01    | ทำ PostgreSQL schema                      | มี PK, FK, unique, check constraints และ indexes   |
+| DB-02    | ทำ MongoDB collections/indexes            | อ่านเมนูและพิกัดตาม query ที่ออกแบบได้             |
+| DATA-01  | ทำ seed และ verify script                 | จำนวนครบ รันซ้ำได้ และข้อมูลสัมพันธ์กัน            |
+| API-01   | Users API                                 | สร้าง/อ่านผู้ใช้และจัดการ email ซ้ำได้             |
+| API-02   | Products API                              | สร้าง dynamic attributes และอ่านแบบ pagination ได้ |
+| API-03   | Orders API                                | ใช้ข้อมูลสอง DB และบันทึกธุรกรรมถูกต้อง            |
+| TRACK-01 | Location API                              | บันทึกพิกัดและไม่ให้ข้อมูลเก่าทับใหม่              |
+| TEST-01  | Integration tests                         | ทดสอบสำเร็จ ล้มเหลว rollback และคำขอซ้ำ            |
+| CI-01    | PR checks                                 | ตรวจโค้ด tests และ frontend build อัตโนมัติ        |
+| DOC-01   | README / ERD / demo script                | สมาชิกอีกคน setup และ demo ตามเอกสารได้            |
 
-| ID | Task | Owner | Done when |
-| --- | --- | --- | --- |
-| SETUP-01 | Monorepo and Compose | You | API, frontend, PostgreSQL, and MongoDB start; done |
-| SETUP-02 | Health checks and environment template | You | No secrets in Git and API starts after databases are healthy; done |
-| DB-01 | Extend PostgreSQL schema with new migrations | Teammate A | Users and restaurant data work with the existing baseline |
-| DB-02 | MongoDB collections and indexes | Teammate B | Catalog and location queries work |
-| DATA-01 | Seed and verification | A and B | At least 1,000 records per DB; reruns do not duplicate data |
-| API-01 | Users API and token issuance | Teammate A | Create/read users, reject duplicate email, issue compatible HS256 tokens |
-| API-02 | Products API | Teammate B | Dynamic attributes and pagination; products match the Orders contract |
-| API-03 | Orders API | You | Transaction, price snapshot, stock locking, cancellation, and duplicate request handling; done |
-| TRACK-01 | Location API and simulator | Teammate B | Older locations cannot replace newer ones; after core CP1 work |
-| TEST-01 | Integration tests | All | Success, failure, rollback, and duplicate requests covered |
-| CI-01 | PR checks | You | Backend check, frontend build, and Orders integration pass |
-| DOC-01 | README, ERD, demo script | All | A teammate can set up and demo the system |
-
-Ten-day sequence: day 1 scope, owners, and contract → day 2 setup → day 3 schema and indexes → day 4 seed → day 5 Users and Products → day 6 Orders → day 7 concurrency and rollback → day 8 Tracking → day 9 integration and clean setup → day 10 audit and demo.
+ใช้บอร์ดเพียง **Todo → Doing → Review → Done** และให้แต่ละคนมีงานใน Doing ครั้งละหนึ่งงานหลัก

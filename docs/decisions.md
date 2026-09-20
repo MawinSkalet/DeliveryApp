@@ -1,27 +1,18 @@
-# Shared decisions (draft)
+**สิ่งที่ต้องตกลงร่วมกันในวันแรก**
 
-These are starting agreements for the team. Confirm them with the team and instructor before writing migrations.
+ก่อนแยกเขียนโค้ด ให้ใช้เวลาประมาณ 1–2 ชั่วโมงตกลงเรื่องเหล่านี้:
 
-| Topic | Decision |
-| --- | --- |
-| Scope | One restaurant per order, fixed delivery fee, simulated cash on delivery |
-| IDs | Use UUID strings for identifiers shared across databases |
-| Time | Store UTC and convert to the user's time zone for display |
-| Money | Use integer satang or PostgreSQL `NUMERIC`; never use floating point for money |
-| Order price | The backend calculates and stores a price snapshot when the order is placed |
-| Order status | `PLACED → ACCEPTED → PREPARING → OUT_FOR_DELIVERY → DELIVERED` |
-| Cancellation | Allowed before acceptance; restore stock exactly once |
-| API | Prefix `/api/v1`; use one error response format |
-| Authorization | Customers see only their orders; riders update only assigned deliveries |
-| Tracking | Older events must not overwrite the latest rider location |
-| Source of truth | PostgreSQL owns orders, stock, and delivery state; MongoDB owns catalog details and telemetry |
-| Cross-database writes | Two writes are not automatically atomic; add retry and reconciliation |
+| เรื่อง         | ข้อตกลงตั้งต้น                                                  |
+| -------------- | --------------------------------------------------------------- |
+| ID             | ใช้ UUID string สำหรับรหัสที่เชื่อมข้ามฐานข้อมูล                |
+| เวลา           | เก็บเป็น UTC และแปลงตอนแสดงผล                                   |
+| ราคา           | ใช้ชนิดเลขที่เก็บเงินได้แม่นยำ หลีกเลี่ยง float                 |
+| ราคาออร์เดอร์  | Backend คำนวณเองและเก็บ snapshot ตอนซื้อ                        |
+| สถานะ          | `PLACED → ACCEPTED → PREPARING → OUT_FOR_DELIVERY → DELIVERED`  |
+| ยกเลิก         | อนุญาตก่อนร้านรับ และคืนสต็อกครั้งเดียว                         |
+| API prefix     | `/api/v1`                                                       |
+| Error response | ใช้รูปแบบเดียวกันทั้งระบบ                                       |
+| Tracking       | ตำแหน่งเก่าต้องไม่เขียนทับตำแหน่งใหม่                           |
+| สิทธิ์         | ลูกค้าเห็นเฉพาะออร์เดอร์ตัวเอง ไรเดอร์ส่งพิกัดเฉพาะงานที่ได้รับ |
 
-## Confirm before feature work
-
-- Whether SQLAlchemy and Alembic are permitted
-- What the course means by `Dual-DB transaction`
-- The fixed delivery fee and service area
-- The real names for roles A–D and the current CP1/CP2 deadlines
-
-Chat, payment gateways, complex coupons, and competitive rider assignment are out of scope.
+ให้บันทึกใน `docs/decisions.md` เพื่อไม่ต้องถามเรื่องเดิมซ้ำ

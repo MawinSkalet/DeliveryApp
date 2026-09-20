@@ -2,13 +2,18 @@
 
 Base path: `/api/v1`. Requests and responses use JSON, IDs are UUID strings, timestamps use ISO 8601 UTC, and prices are integer satang. Orders routes are implemented; the other routes remain planned.
 
-| Group | Planned endpoints | Purpose |
-| --- | --- | --- |
-| Users | `POST /users`, `GET /users/{id}` | Create and read users; reject duplicate email addresses |
-| Products | `POST /products`, `GET /products` | Manage products and provide paginated listing |
-| Orders | `POST /orders`, `GET /orders/{id}`, `GET /orders` | Create and read orders with authorization; implemented |
-| Orders | `POST /orders/{id}/cancel` | Cancel before acceptance and restore stock once; implemented |
-| Tracking | `POST /deliveries/{id}/locations`, `GET /deliveries/{id}/location` | Submit a location and read the latest one |
+**ล็อกขอบเขตงานก่อนเริ่ม**
+
+| ส่วน     | สิ่งที่จะทำ                                                |
+| -------- | ---------------------------------------------------------- |
+| ลูกค้า   | สมัคร/เข้าสู่ระบบ ดูเมนู สั่งอาหาร ดูประวัติ ติดตามไรเดอร์ |
+| ร้าน     | จัดการเมนูและสต็อก รับออร์เดอร์ อัปเดตสถานะ                |
+| ไรเดอร์  | ดูงานที่ได้รับ เริ่มจัดส่ง ยืนยันส่งสำเร็จ                 |
+| แผนที่   | แสดงร้าน จุดส่ง และตำแหน่งไรเดอร์จำลองทุก 3–5 วินาที       |
+| การสั่ง  | หนึ่งออร์เดอร์ต่อหนึ่งร้าน ค่าจัดส่งคงที่                  |
+| การจ่าย  | เงินปลายทางแบบจำลอง                                        |
+| ยังไม่ทำ | แชต payment gateway คูปองซับซ้อน และระบบแข่งขันรับงาน      |
+
 
 Proposed shared error format, to be confirmed by the team:
 
