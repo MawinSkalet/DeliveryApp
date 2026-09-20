@@ -23,7 +23,7 @@ def validation_error_handler(_request: Request, error: RequestValidationError) -
         for item in error.errors()
     ]
     return JSONResponse(
-        status_code=422,
+        status_code=400,
         content={
             "error": {
                 "code": "VALIDATION_ERROR",

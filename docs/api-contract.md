@@ -39,4 +39,4 @@ An optional `id` UUID lets an integration client choose a product ID; duplicate 
 }
 ```
 
-The required `Idempotency-Key` header is 1–128 characters. The first successful order returns `201`; an identical replay returns `200` with the same order; reusing the key with a different body returns `409`. Missing/invalid tokens return `401`, wrong roles return `403`, missing records return `404`, invalid payloads return `422`, and unavailable databases return `503`.
+The required `Idempotency-Key` header is 1–128 characters. The first successful order returns `201`; an identical replay returns `200` with the same order; reusing the key with a different body returns `409`. Missing/invalid tokens return `401`, wrong roles return `403`, missing records return `404`, invalid payloads return `400`, and unavailable databases return `503`.

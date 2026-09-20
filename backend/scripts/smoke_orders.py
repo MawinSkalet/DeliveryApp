@@ -95,7 +95,7 @@ def main() -> None:
             {"restaurant_id": restaurant_id, "items": [{"product_id": product_a, "quantity": 0}]},
             "invalid-order",
         )
-        assert status == 422 and invalid["error"]["code"] == "VALIDATION_ERROR"
+        assert status == 400 and invalid["error"]["code"] == "VALIDATION_ERROR"
 
         status, replayed = call("POST", "", customer_token, order_body, "first-order")
         assert status == 200 and replayed["id"] == order_id, (status, replayed)
