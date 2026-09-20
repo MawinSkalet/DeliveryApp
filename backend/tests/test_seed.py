@@ -1,5 +1,7 @@
 import os
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 
 import psycopg
 from pymongo import MongoClient
@@ -54,4 +56,31 @@ class TestSeedIdempotence(unittest.TestCase):
             with MongoClient(os.environ["MONGO_URL"]) as client:
                 client.deliveryapp.products.update_one(
                     {"_id": item_id}, {"$set": {"price_satang": original_price}}
+                )
+
+    def test_verifier_detects_orphan_inventory(self) -> None:
+        if not all(os.getenv(name) for name in ("DATABASE_URL", "MONGO_URL")):
+            self.skipTest("Database URLs are not configured")
+        from uuid import uuid4
+
+        from scripts.seed_postgres import restaurant_id
+
+        database_url = os.environ["DATABASE_URL"].replace(
+            "postgresql+psycopg://", "postgresql://", 1
+        )
+        orphan_id = uuid4()
+        with psycopg.connect(database_url) as connection:
+            connection.execute(
+                "INSERT INTO inventory (product_id, restaurant_id, quantity) VALUES (%s, %s, 1)",
+                (orphan_id, restaurant_id(0)),
+            )
+        try:
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(verify_mongo())
+            self.assertIn("Inventory has no matching product", output.getvalue())
+        finally:
+            with psycopg.connect(database_url) as connection:
+                connection.execute(
+                    "DELETE FROM inventory WHERE product_id = %s", (orphan_id,)
                 )

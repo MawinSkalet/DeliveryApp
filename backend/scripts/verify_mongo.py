@@ -79,6 +79,10 @@ def verify_mongo() -> bool:
     for document in products:
         if inventory.get(document["_id"]) != document.get("restaurant_id"):
             errors.append(f"Product has no matching inventory: {document['_id']}")
+    product_ids = set(by_id)
+    for inventory_id in inventory:
+        if inventory_id not in product_ids:
+            errors.append(f"Inventory has no matching product: {inventory_id}")
     for index in range(1000):
         if inventory.get(product_id(index)) != restaurant_id(index // 100):
             errors.append(f"Seeded inventory mismatch for product {index}")
