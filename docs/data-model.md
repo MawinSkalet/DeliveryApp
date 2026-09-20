@@ -1,23 +1,28 @@
-# Initial data model
+# Checkpoint 1 data model
 
-Migration `0001_order_baseline` creates PostgreSQL `users`, `restaurants`, `inventory`, `orders`, `order_items`, `deliveries`, and `order_status_history`. MongoDB `products`, `rider_locations`, and `location_events` are still owned by catalog and tracking work. Additional columns and indexes must go into new migrations once teammates have applied the baseline.
+The Alembic history is the executable PostgreSQL schema path: `0001_order_baseline` creates `users`, `restaurants`, `inventory`, `orders`, `order_items`, `deliveries`, and `order_status_history`; `0002_user_accounts` adds account credentials, roles, creation time, and a case-insensitive unique email index. The API container applies migrations on startup.
 
-| PostgreSQL             | MongoDB           |
-| ---------------------- | ----------------- |
-| `users`                | `products`        |
-| `restaurants`          | `rider_locations` |
-| `inventory`            | `location_events` |
-| `orders`               |                   |
-| `order_items`          |                   |
-| `deliveries`           |                   |
-| `order_status_history` |                   |
+```mermaid
+erDiagram
+    users ||--o{ orders : places
+    users ||--o{ deliveries : rides
+    restaurants ||--o{ inventory : stocks
+    restaurants ||--o{ orders : receives
+    orders ||--|{ order_items : contains
+    orders ||--o| deliveries : has
+    orders ||--o{ order_status_history : records
+    inventory ||--o{ order_items : snapshots
+```
 
-กติกาสำคัญคือ **ออร์เดอร์ สต็อก และสถานะจัดส่งมี PostgreSQL เป็นข้อมูลหลัก** ส่วน MongoDB เก็บรายละเอียดเมนูและ telemetry ซึ่งตรงกับประเภทข้อมูลที่ CP1 อนุญาต 
+Primary and foreign keys enforce account, restaurant, order, item, and delivery relations. Check constraints prevent negative stock and invalid order totals. Query indexes cover restaurant inventory, customer order history, order items, status history, and case-insensitive email lookup. The order transaction locks inventory rows, stores a price snapshot, and updates stock and order records together.
 
-ให้ `products` และ `inventory` ใช้รหัสเมนูเดียวกัน เมนูจะสั่งได้เมื่อมี inventory ที่ถูกต้อง ส่วนการสร้างเมนูข้ามสอง DB ต้องมีขั้นตอน retry/ตรวจรายการไม่ครบ ไม่ถือว่าการเขียนสองครั้งเป็น atomic transaction โดยอัตโนมัติ
+MongoDB contains two CP1 collections:
 
-MongoDB `products._id` must match PostgreSQL `inventory.product_id`. A product can be ordered only when a valid inventory row exists. Creating a product across both databases requires reconciliation for partial writes and a retry path.
+| Collection | Document fields | Query index |
+| --- | --- | --- |
+| `products` | UUID string `_id`, restaurant UUID, name, integer `price_satang`, `active`, flexible `attributes` | `restaurant_id`, `active`, `_id` |
+| `rider_locations` | Rider UUID `_id`/`rider_id`, latitude, longitude, UTC `updated_at` | `rider_id`, descending `updated_at` |
 
-The future DDL should include primary keys, foreign keys, unique constraints, check constraints, and indexes for actual queries. MongoDB needs indexes for restaurant catalog queries and current rider locations. Seed scripts must be idempotent and provide at least 1,000 records or documents per database for CP1.
+`products._id` equals `inventory.product_id`. The reproducible seed creates 10 restaurants, 101 users (80 customers, 20 riders, one demo merchant), and 1,000 inventory rows in PostgreSQL, plus 1,000 products and 20 rider locations in MongoDB. `scripts.verify_seed` checks collection counts, indexes, required fields, UUIDs, and every product/inventory link.
 
-Migrations should be the only executable path for schema changes. A DDL baseline is documentation and must not create the same tables a second time.
+PostgreSQL is the source of truth for orders, stock, and delivery state. MongoDB is the source of truth for catalog details and location telemetry. No shared ACID transaction exists across the two engines. Product creation publishes the MongoDB document only after its stock row commits and compensates for a reported MongoDB failure. An interrupted or ambiguous write may leave an orphan; the verification command detects it for review. Order creation reads MongoDB and writes transactional state only to PostgreSQL.

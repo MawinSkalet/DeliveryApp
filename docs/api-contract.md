@@ -1,35 +1,36 @@
-# Draft API contract
+# API contract
 
-Base path: `/api/v1`. Requests and responses use JSON, IDs are UUID strings, timestamps use ISO 8601 UTC, and prices are integer satang. Orders routes are implemented; the other routes remain planned.
+Base path: `/api/v1`. Requests and responses use JSON. IDs are UUID strings, timestamps are ISO 8601 UTC, and money is integer satang in API payloads. Error responses use `{"error":{"code":"...","message":"...","details":{}}}`.
 
-**ล็อกขอบเขตงานก่อนเริ่ม**
+| Method | Route | Status | Access |
+| --- | --- | --- | --- |
+| POST | `/users` | Implemented | Public; registers `customer` or `rider` |
+| POST | `/auth/login` | Implemented | Public; returns HS256 bearer token |
+| GET | `/users/{id}` | Implemented | Own account or admin |
+| GET | `/products` | Implemented | Public; requires `restaurant_id`, supports `limit` and `offset` |
+| POST | `/products` | Implemented | Merchant or admin bearer token |
+| POST | `/orders` | Implemented | Customer bearer token and `Idempotency-Key` |
+| GET | `/orders`, `/orders/{id}` | Implemented | Own orders only |
+| POST | `/orders/{id}/cancel` | Implemented | Own placed order only |
+| POST/GET | `/deliveries/{id}/locations` | Later milestone | Assigned rider / authorized customer |
 
-| ส่วน     | สิ่งที่จะทำ                                                |
-| -------- | ---------------------------------------------------------- |
-| ลูกค้า   | สมัคร/เข้าสู่ระบบ ดูเมนู สั่งอาหาร ดูประวัติ ติดตามไรเดอร์ |
-| ร้าน     | จัดการเมนูและสต็อก รับออร์เดอร์ อัปเดตสถานะ                |
-| ไรเดอร์  | ดูงานที่ได้รับ เริ่มจัดส่ง ยืนยันส่งสำเร็จ                 |
-| แผนที่   | แสดงร้าน จุดส่ง และตำแหน่งไรเดอร์จำลองทุก 3–5 วินาที       |
-| การสั่ง  | หนึ่งออร์เดอร์ต่อหนึ่งร้าน ค่าจัดส่งคงที่                  |
-| การจ่าย  | เงินปลายทางแบบจำลอง                                        |
-| ยังไม่ทำ | แชต payment gateway คูปองซับซ้อน และระบบแข่งขันรับงาน      |
+`POST /users` accepts `email`, `name`, `password` (at least eight characters), and optional `role` (`customer` by default). A case-insensitive duplicate email returns `409`. `POST /auth/login` accepts `email` and `password` and returns `access_token`, `token_type: "bearer"`, and a user summary. Tokens contain `sub` (user UUID), `role`, and `exp` and use the configured `AUTH_SECRET`.
 
-
-Proposed shared error format, to be confirmed by the team:
+`GET /products` requires a restaurant UUID and accepts `limit` 1–100 (default 20) and `offset` at least 0 (default 0). It returns active products sorted by UUID with `items`, `total`, `limit`, and `offset`. `POST /products` accepts this shape:
 
 ```json
 {
-  "error": {
-    "code": "OUT_OF_STOCK",
-    "message": "Insufficient stock",
-    "details": {}
-  }
+  "restaurant_id": "4b6b748e-c8ba-4b06-bda5-981bf9cebe32",
+  "name": "Khao Soi Chicken",
+  "price_satang": 6500,
+  "initial_stock": 12,
+  "attributes": {"spice_level": "medium", "toppings": ["chicken"]}
 }
 ```
 
-Orders authentication uses an HS256 bearer token with `sub` (user UUID), `role: "customer"`, and `exp` (Unix timestamp). The Users owner must issue compatible tokens and use the same `AUTH_SECRET`. Orders read only the authenticated customer's records. `POST /orders` also requires an `Idempotency-Key` header (1–128 characters). A replay with the same body returns `200`; reusing the key for different content returns `409`.
+An optional `id` UUID lets an integration client choose a product ID; duplicate IDs return `409`. Product creation checks that the restaurant exists, inserts matching PostgreSQL inventory, then publishes the MongoDB product. If MongoDB rejects the write, the API removes the new inventory row. A crash or ambiguous network outcome can still require reconciliation; `scripts.verify_seed` reports mismatches.
 
-Example create request:
+`POST /orders` reads the MongoDB product document, snapshots its name and price, and inserts the order while locking/decrementing PostgreSQL inventory in one PostgreSQL transaction:
 
 ```json
 {
@@ -38,6 +39,4 @@ Example create request:
 }
 ```
 
-MongoDB database `deliveryapp`, collection `products`, uses a UUID string as `_id`, with `restaurant_id` (UUID string), `name` (string), `price_satang` (integer), and `active` (boolean). PostgreSQL `inventory.product_id` matches `_id`. Product prices are copied at purchase time; MongoDB is read only during order creation.
-
-Orders return `201` on creation, `200` on reads or replay, `401` for missing/invalid tokens, `403` for noncustomer tokens, `404` for inaccessible records or products, `409` for stock/idempotency conflicts, `422` for invalid input, and `503` when a database is unavailable. The Users and Products owners should define their own request/response examples before implementation and notify frontend owners when contracts change.
+The required `Idempotency-Key` header is 1–128 characters. The first successful order returns `201`; an identical replay returns `200` with the same order; reusing the key with a different body returns `409`. Missing/invalid tokens return `401`, wrong roles return `403`, missing records return `404`, invalid payloads return `422`, and unavailable databases return `503`.

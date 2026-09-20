@@ -1,5 +1,7 @@
 # Teammate B — Products and MongoDB
 
+Historical assignment brief: this work is implemented and verified in the current CP1 branch. Use the root README for current setup commands.
+
 ## Mission
 
 Make catalog products readable and orderable by the existing Orders API and provide the MongoDB half of CP1 data. Own Products, MongoDB indexes, and MongoDB seed. Tracking can follow after core CP1 work.
@@ -32,7 +34,7 @@ On PowerShell, use `Copy-Item .env.example .env`. Change local passwords and `AU
 3. Store each MongoDB document with `_id` as a UUID string, `restaurant_id` as the matching PostgreSQL restaurant UUID string, `name` as a nonempty string, `price_satang` as an integer, and `active` as a boolean. Optional `attributes` is an object. Create a PostgreSQL `inventory` row whose `product_id` equals MongoDB `_id`.
 4. Product creation makes two writes, not an atomic distributed transaction. Document retry/reconciliation for partial failures. A safe starting order is inventory first, then MongoDB; if MongoDB fails, remove the unused inventory row or record it for retry. Do not present a product as orderable until both records exist.
 5. Add `backend/scripts/seed_mongo.py` using [seed-contract.md](seed-contract.md): 1,000 products and at least 20 rider locations with stable IDs. Rerunning seed must not overwrite changed prices or locations.
-6. Add `backend/scripts/verify_mongo.py`: check counts, indexes, required fields, UUID formats, restaurant IDs, and a matching PostgreSQL inventory row for every seeded product. The project owner will add the top-level `scripts.seed` and `scripts.verify_seed` wrappers after both PRs merge.
+6. Add `backend/scripts/verify_mongo.py`: check counts, indexes, required fields, UUID formats, restaurant IDs, and a matching PostgreSQL inventory row for every seeded product. The top-level `scripts.seed` and `scripts.verify_seed` wrappers are now implemented.
 7. Add tests for pagination, filtering, invalid price/stock, duplicate IDs, repeated seed runs, and missing inventory. Keep the existing `scripts.smoke_orders` product fixtures valid under any new MongoDB schema validation, or update them in the same PR. Extend CI to run tests against test databases.
 
 ## Orders integration contract

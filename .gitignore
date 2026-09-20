@@ -10,4 +10,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 coverage/
+*.db
+*.sqlite
+*.sqlite3
 .DS_Store

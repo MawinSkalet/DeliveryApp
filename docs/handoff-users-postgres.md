@@ -1,5 +1,7 @@
 # Teammate A — Users and PostgreSQL
 
+Historical assignment brief: this work is implemented and verified in the current CP1 branch. Use the root README for current setup commands.
+
 ## Mission
 
 Make customer accounts usable by the existing Orders API and provide the PostgreSQL half of the CP1 dataset. Own Users and PostgreSQL schema changes; do not reimplement Orders.
@@ -31,7 +33,7 @@ On PowerShell, use `Copy-Item .env.example .env`. Change local passwords and `AU
 2. Implement `POST /api/v1/users` for registration, `GET /api/v1/users/{id}` for an authorized read, and `POST /api/v1/auth/login`. Validate input, hash passwords before storing, never return a password hash, and return `409` for duplicate email. Use the shared JSON error shape in `app/errors.py`.
 3. Login must issue an HS256 bearer token signed with `AUTH_SECRET`, containing `sub` (user UUID string), `role: "customer"`, and `exp` (future Unix timestamp). Orders already verifies these claims. Never commit the signing secret.
 4. Add `backend/scripts/seed_postgres.py` using [seed-contract.md](seed-contract.md). Insert users (including rider-role IDs 80–99), restaurants, and inventory with stable IDs. Rerunning seed must not reset stock or passwords.
-5. Add `backend/scripts/verify_postgres.py` to check counts, constraints, and inventory-to-restaurant relations. The project owner will add the top-level `scripts.seed` and `scripts.verify_seed` wrappers after both PRs merge.
+5. Add `backend/scripts/verify_postgres.py` to check counts, constraints, and inventory-to-restaurant relations. The top-level `scripts.seed` and `scripts.verify_seed` wrappers are now implemented.
 6. Add tests for registration, duplicate email in different letter case, invalid login, token claims, authorized reads, and repeated seed runs. The existing `scripts.smoke_orders` inserts only `id`, `email`, and `name`; update its disposable fixtures in the same PR if your new user columns require values. Extend CI to run tests on a test database.
 
 ## Orders integration contract
