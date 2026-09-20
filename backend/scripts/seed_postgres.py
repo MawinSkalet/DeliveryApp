@@ -20,7 +20,10 @@ def user_id(index: int) -> str:
 
 def seed_postgres() -> None:
     url = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
-    default_password_hash = hash_password("Password123!")
+    seed_password = os.environ.get("SEED_USER_PASSWORD")
+    if not seed_password or len(seed_password) < 8:
+        raise ValueError("Set SEED_USER_PASSWORD to a local demo password of at least 8 characters")
+    default_password_hash = hash_password(seed_password)
 
     with psycopg.connect(url) as conn:
         with conn.cursor() as cur:
@@ -38,7 +41,7 @@ def seed_postgres() -> None:
                 restaurant_records,
             )
 
-            # 2. Seed Users (100: 0-79 customers, 80-99 riders)
+            # 2. Seed Users (80 customers, 20 riders, one demo merchant)
             user_records = []
             for i in range(100):
                 uid = user_id(i)
@@ -51,6 +54,10 @@ def seed_postgres() -> None:
                     email = f"rider_{i}@cmu.ac.th"
                     name = f"Rider {i}"
                 user_records.append((uid, email, name, default_password_hash, role))
+
+            user_records.append(
+                (user_id(100), "merchant@cmu.example", "CMU Demo Merchant", default_password_hash, "merchant")
+            )
 
             cur.executemany(
                 """
@@ -80,7 +87,7 @@ def seed_postgres() -> None:
 
         conn.commit()
 
-    print("PostgreSQL seed completed successfully: 10 restaurants, 100 users, 1000 inventory items.")
+    print("PostgreSQL seed completed: 10 restaurants, 101 users, 1000 inventory items.")
 
 
 if __name__ == "__main__":
