@@ -1,18 +1,20 @@
-**สิ่งที่ต้องตกลงร่วมกันในวันแรก**
+# Shared technical decisions
 
-ก่อนแยกเขียนโค้ด ให้ใช้เวลาประมาณ 1–2 ชั่วโมงตกลงเรื่องเหล่านี้:
+| Topic | Current decision |
+| --- | --- |
+| Scope | One restaurant per order, fixed delivery fee, simulated cash on delivery |
+| IDs | UUID strings for IDs shared between PostgreSQL and MongoDB |
+| Time | Store UTC timestamps and convert for display |
+| Money | Integer satang in the API; PostgreSQL numeric where appropriate; no floating-point currency |
+| Order price | Backend calculates and stores the product name and price at purchase time |
+| Status | `PLACED → ACCEPTED → PREPARING → OUT_FOR_DELIVERY → DELIVERED` |
+| Cancellation | Allowed only while placed; return stock exactly once |
+| API | `/api/v1` prefix and shared JSON error shape |
+| Authorization | Customers read only their records; product writes require merchant/admin tokens |
+| Source of truth | PostgreSQL owns transactions and stock; MongoDB owns catalog and telemetry |
+| Cross-database writes | No automatic atomicity; compensate known failures and verify for orphans |
+| Seed | Stable UUID5 IDs and insert-if-missing behavior preserve later edits |
 
-| เรื่อง         | ข้อตกลงตั้งต้น                                                  |
-| -------------- | --------------------------------------------------------------- |
-| ID             | ใช้ UUID string สำหรับรหัสที่เชื่อมข้ามฐานข้อมูล                |
-| เวลา           | เก็บเป็น UTC และแปลงตอนแสดงผล                                   |
-| ราคา           | ใช้ชนิดเลขที่เก็บเงินได้แม่นยำ หลีกเลี่ยง float                 |
-| ราคาออร์เดอร์  | Backend คำนวณเองและเก็บ snapshot ตอนซื้อ                        |
-| สถานะ          | `PLACED → ACCEPTED → PREPARING → OUT_FOR_DELIVERY → DELIVERED`  |
-| ยกเลิก         | อนุญาตก่อนร้านรับ และคืนสต็อกครั้งเดียว                         |
-| API prefix     | `/api/v1`                                                       |
-| Error response | ใช้รูปแบบเดียวกันทั้งระบบ                                       |
-| Tracking       | ตำแหน่งเก่าต้องไม่เขียนทับตำแหน่งใหม่                           |
-| สิทธิ์         | ลูกค้าเห็นเฉพาะออร์เดอร์ตัวเอง ไรเดอร์ส่งพิกัดเฉพาะงานที่ได้รับ |
+Confirm with the instructor whether the CP1 phrase “Dual-DB transaction” requires writes to both databases. The current order endpoint reads a MongoDB product and commits the order and stock change in PostgreSQL; it does not claim a distributed atomic commit. Also verify the official CP1 deadline: the project overview labels it Week 8, while the dedicated CP1 sheet says submission at the end of Week 11.
 
-ให้บันทึกใน `docs/decisions.md` เพื่อไม่ต้องถามเรื่องเดิมซ้ำ
+For later milestones, decide how merchant ownership maps to restaurants, how assigned riders are authorized, and how to reconcile ambiguous cross-database failures automatically. Chat, payment gateways, complex coupons, and competitive rider assignment are outside the current scope.

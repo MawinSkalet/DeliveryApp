@@ -1,41 +1,86 @@
 # DeliveryApp
 
-Food delivery around Chiang Mai University. The setup and Orders API are implemented. Users, Products, and Tracking APIs are still pending.
+Food delivery around Chiang Mai University. The Checkpoint 1 backend connects FastAPI to PostgreSQL for accounts, orders, and inventory, and to MongoDB for products and rider locations.
 
-## Getting started
+## Team and contributions
 
-Install Git and Docker Desktop, then run:
+The roster below uses the student details provided by the team and links each person to their Git identity.
+
+| Student ID | Member / Git identity | Current responsibility and contribution |
+| --- | --- | --- |
+| 670615020 | Jirasak Boonsom / Jirasak | Project setup, Orders API, integration, Products API, CP1 verification |
+| 670615035 | Supanat Pudhom / beam2548 | Users API, account migration, PostgreSQL seed and tests |
+| 650615037 | Anakin arsa / Anakin_Arsa | Project planning and handoff documentation |
+
+Each member should continue contributing through a feature branch and a reviewed pull request. The Git history, not this table alone, is the evidence of individual work.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Browser[Browser / React frontend] -->|HTTP JSON| API[Python FastAPI]
+    API -->|Users, orders, inventory| PG[(PostgreSQL)]
+    API -->|Products, rider locations| Mongo[(MongoDB)]
+    API -->|Order: read catalog| Mongo
+    API -->|Order: transactional stock and order write| PG
+```
+
+PostgreSQL owns transactional state. MongoDB owns flexible catalog documents and location telemetry. Product IDs match PostgreSQL inventory IDs. Creating a product writes to PostgreSQL first and MongoDB second; these writes are not a distributed atomic transaction. On a MongoDB failure, the API removes the new inventory row, and `scripts.verify_seed` detects catalog/inventory mismatches after an interrupted write. Order creation reads a product snapshot from MongoDB and commits stock and order rows together in PostgreSQL.
+
+## Local setup
+
+Install Git and Docker Desktop. Clone the repository and create a local environment file:
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+```
+
+On PowerShell, use `Copy-Item .env.example .env`. Replace every `replace-with...` or `change-me...` value in `.env` with your own local values. In particular, set a long `AUTH_SECRET` and a demo `SEED_USER_PASSWORD` of at least eight characters. `.env` is ignored by Git. The database port defaults are 5432 and 27017; change `POSTGRES_PORT` or `MONGO_PORT` in `.env` if those host ports are occupied.
+
+Start the stack, seed both databases, and verify the data:
+
+```bash
+docker compose up -d --build --wait
+docker compose exec -T api python -m scripts.seed
+docker compose exec -T api python -m scripts.verify_seed
 docker compose ps
 ```
 
-On PowerShell, use `Copy-Item .env.example .env`. Change the local passwords in `.env` and keep that file out of Git. If ports `5432` or `27017` are unavailable, change `POSTGRES_PORT` or `MONGO_PORT` in `.env`. Replace `AUTH_SECRET` with a long random value shared by the API and the future Users token issuer.
+The API container applies the Alembic migration history on startup. To apply a later migration manually, run `docker compose exec -T api alembic upgrade head`. Do not run a second copy of the same DDL manually. Named Docker volumes preserve data after `docker compose down`; seeding can be rerun without resetting existing stock, prices, or passwords.
 
-| Service | URL |
+| Service | Default local URL |
 | --- | --- |
-| Frontend | http://localhost:5173 |
-| Swagger | http://localhost:8000/docs |
-| Health | http://localhost:8000/health |
+| Frontend setup page | http://localhost:5173 |
+| API and Swagger | http://localhost:8000/docs |
+| API health | http://localhost:8000/health |
 | PostgreSQL | localhost:5432 |
 | MongoDB | localhost:27017 |
 
-`curl http://localhost:8000/health` should return `{"status":"ok"}`. This checks the API only; use `docker compose ps` to check the databases. Stop services with `docker compose down`; named volumes preserve data.
+The frontend is currently a setup page. Checkpoint 1 is a backend milestone; the customer UI and live rider map are later work.
 
-Apply the relational baseline migration:
+## API endpoint summary
+
+| Method | Route | Purpose and database |
+| --- | --- | --- |
+| POST | `/api/v1/users` | Register a customer or rider in PostgreSQL |
+| POST | `/api/v1/auth/login` | Get a bearer token for a seeded or registered user |
+| GET | `/api/v1/users/{id}` | Read your own profile from PostgreSQL |
+| GET | `/api/v1/products?restaurant_id={uuid}&limit=20&offset=0` | Paginated MongoDB catalog |
+| POST | `/api/v1/products` | Merchant/admin token required; create MongoDB product and PostgreSQL inventory |
+| POST | `/api/v1/orders` | Customer token and `Idempotency-Key` required; read MongoDB, write PostgreSQL transaction |
+| GET | `/api/v1/orders`, `/api/v1/orders/{id}` | Read your own PostgreSQL orders |
+| POST | `/api/v1/orders/{id}/cancel` | Cancel a placed order and restore stock once |
+
+The seed creates `merchant@cmu.example` with the local `SEED_USER_PASSWORD`; log in with this account to create products. Register a customer through `POST /api/v1/users`, then log in as that customer to place orders. Product creation accepts `restaurant_id`, `name`, integer `price_satang`, integer `initial_stock`, and a flexible `attributes` object. See [the API contract](docs/api-contract.md) for request and response details.
+
+## Verification and demo
 
 ```bash
-docker compose exec api alembic upgrade head
+docker compose exec -T api python -m unittest discover -s tests -p "test_*.py"
+docker compose exec -T api python -m scripts.smoke_cp1
+docker compose exec -T api python -m scripts.smoke_orders
 ```
 
-The Orders API reads catalog documents from MongoDB and updates stock and orders in one PostgreSQL transaction. It requires an HS256 customer bearer token and an `Idempotency-Key` for order creation. Until the Users API and catalog seed are added, run the disposable integration smoke test after migration:
+The CP1 smoke test exercises all five required routes through HTTP and cleans up its temporary data. The Orders smoke test covers retries, stock conflicts, authorization, concurrency, and cancellation. GitHub Actions runs these checks against fresh Compose volumes on each pull request and push to `main`.
 
-```bash
-docker compose exec api python -m scripts.smoke_orders
-```
-
-The script creates temporary users, a restaurant, inventory, and products; tests order creation, replay, stock conflicts, concurrent requests, cancellation, and access control; then removes its data. Seed and verification scripts for the CP1 dataset are still pending.
-
-Read the [decisions](docs/decisions.md), [data model](docs/data-model.md), [API contract](docs/api-contract.md), and [backlog](docs/backlog.md) before feature work. Give teammates their individual briefs from the [CP1 team handoff](docs/team-handoff.md), replace role labels with real names, and confirm open questions with the instructor.
+For the instructor audit, show the architecture above, `docker compose ps`, `scripts.verify_seed` output (10 restaurants, 101 users, 1,000 inventory rows, 1,000 products, and 20 rider locations), Swagger, and `scripts.smoke_cp1`. See [the data model](docs/data-model.md), [decisions](docs/decisions.md), and [backlog](docs/backlog.md) for design notes.
