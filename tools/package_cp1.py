@@ -10,7 +10,7 @@ ROOT_FILES = ("README.md", "docker-compose.yml", ".env.example", ".gitignore")
 SOURCE_DIRS = (".github", "backend", "frontend", "docs", "tools")
 SKIP_DIRS = {".git", ".venv", "__pycache__", "node_modules", "dist", ".pytest_cache", ".ruff_cache"}
 SKIP_NAMES = {".env", ".DS_Store"}
-SKIP_SUFFIXES = {".pyc", ".db", ".sqlite", ".sqlite3"}
+SKIP_SUFFIXES = {".pyc", ".db", ".sqlite", ".sqlite3", ".tsbuildinfo"}
 
 
 def source_files() -> list[Path]:
@@ -56,7 +56,11 @@ def main() -> None:
             raise RuntimeError(f"Missing required submission files: {sorted(required - set(names))}")
         if archive.testzip() is not None:
             raise RuntimeError("ZIP integrity check failed")
-        if any("/.git/" in name or name.endswith("/.env") for name in names):
+        if any(
+            "/.git/" in name
+            or (Path(name).name.startswith(".env") and Path(name).name != ".env.example")
+            for name in names
+        ):
             raise RuntimeError("ZIP contains a local Git or environment file")
 
     print(f"Created {OUTPUT} ({len(files)} files, {OUTPUT.stat().st_size} bytes)")
