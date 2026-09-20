@@ -228,7 +228,7 @@ class TestUsersHttpEndpoints(unittest.TestCase):
             "/api/v1/users",
             json={"email": "bad-email", "name": "", "password": "123"},
         )
-        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.status_code, 400)
         body = response.json()
         self.assertIn("error", body)
         self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")

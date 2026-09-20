@@ -89,7 +89,7 @@ def create_order(
 ) -> dict:
     product_ids = [str(item.product_id) for item in body.items]
     if len(product_ids) != len(set(product_ids)):
-        raise ApiError(422, "DUPLICATE_PRODUCT", "Each product may appear only once")
+        raise ApiError(400, "DUPLICATE_PRODUCT", "Each product may appear only once")
 
     request_hash = _request_hash(body)
     try:

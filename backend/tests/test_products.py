@@ -104,7 +104,7 @@ class TestProductsApi(unittest.TestCase):
             response = self.client.post(
                 "/api/v1/products", json={**payload, **invalid}, headers=self.merchant_headers
             )
-            self.assertEqual(response.status_code, 422, response.text)
+            self.assertEqual(response.status_code, 400, response.text)
         missing = self.client.post(
             "/api/v1/products",
             json={**payload, "restaurant_id": str(uuid4())},
@@ -113,7 +113,7 @@ class TestProductsApi(unittest.TestCase):
         self.assertEqual(missing.status_code, 404)
         self.assertEqual(
             self.client.get("/api/v1/products", params={"restaurant_id": str(self.restaurant_id), "limit": 0}).status_code,
-            422,
+            400,
         )
 
     def test_mongo_failure_removes_new_inventory(self) -> None:
