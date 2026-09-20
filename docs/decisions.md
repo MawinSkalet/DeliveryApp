@@ -15,6 +15,6 @@
 | Cross-database writes | No automatic atomicity; compensate known failures and verify for orphans |
 | Seed | Stable UUID5 IDs and insert-if-missing behavior preserve later edits |
 
-Confirm with the instructor whether the CP1 phrase “Dual-DB transaction” requires writes to both databases. The current order endpoint reads a MongoDB product and commits the order and stock change in PostgreSQL; it does not claim a distributed atomic commit. Also verify the official CP1 deadline: the project overview labels it Week 8, while the dedicated CP1 sheet says submission at the end of Week 11.
+The CP1 handout names PostgreSQL and MongoDB as the target databases for `POST /api/v1/orders` and assigns transactional state to PostgreSQL. The endpoint reads the product and price from MongoDB, then commits the order and stock change atomically in PostgreSQL. This is the implemented dual-database order flow; it does not claim a distributed atomic commit across both engines. The dedicated CP1 handout states a submission deadline at the end of Week 11 despite its Week 8 heading; verify the course announcement for the calendar date.
 
 For later milestones, decide how merchant ownership maps to restaurants, how assigned riders are authorized, and how to reconcile ambiguous cross-database failures automatically. Chat, payment gateways, complex coupons, and competitive rider assignment are outside the current scope.
