@@ -37,6 +37,12 @@ def verify_postgres() -> bool:
             if rider_count < 20:
                 errors.append(f"Expected at least 20 riders, found {rider_count}")
 
+            cur.execute("SELECT count(*) FROM users WHERE role = 'merchant'")
+            merchant_count = cur.fetchone()[0]
+            print(f"[CHECK] Merchant users count: {merchant_count}")
+            if merchant_count < 1:
+                errors.append("Expected a demo merchant account")
+
             # 3. Inventory count
             cur.execute("SELECT count(*) FROM inventory")
             inv_count = cur.fetchone()[0]

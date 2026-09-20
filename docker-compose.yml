@@ -37,6 +37,7 @@ services:
       MONGO_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/?authSource=admin
       DELIVERY_FEE_SATANG: ${DELIVERY_FEE_SATANG:-1500}
       AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:?Set SEED_USER_PASSWORD in .env}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
