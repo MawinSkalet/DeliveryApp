@@ -83,4 +83,6 @@ docker compose exec -T api python -m scripts.smoke_orders
 
 The CP1 smoke test exercises all five required routes through HTTP and cleans up its temporary data. The Orders smoke test covers retries, stock conflicts, authorization, concurrency, and cancellation. GitHub Actions runs these checks against fresh Compose volumes on each pull request and push to `main`.
 
-For the instructor audit, show the architecture above, `docker compose ps`, `scripts.verify_seed` output (10 restaurants, 101 users, 1,000 inventory rows, 1,000 products, and 20 rider locations), Swagger, and `scripts.smoke_cp1`. See [the data model](docs/data-model.md), [decisions](docs/decisions.md), and [backlog](docs/backlog.md) for design notes.
+For the instructor audit, show the architecture above, `docker compose ps`, `scripts.verify_seed` output (10 restaurants, 101 users, 1,000 inventory rows, 1,000 products, and 20 rider locations), Swagger, and `scripts.smoke_cp1`. The [CP1 submission and audit guide](docs/cp1-submission.md) maps every handout requirement to repository evidence and provides a 10-minute demo sequence. See [the data model](docs/data-model.md), [decisions](docs/decisions.md), and [backlog](docs/backlog.md) for design notes.
+
+For the course assignment upload, one team member runs `python tools/package_cp1.py` and uploads `dist/DeliveryApp_CP1_submission.zip`. The alternative is a public Google Drive/OneDrive link, but the ZIP upload avoids changing cloud-sharing permissions. See the submission guide for the exact handoff.
