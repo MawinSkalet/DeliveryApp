@@ -34,6 +34,9 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-2}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-20}
+      API_WORKERS: ${API_WORKERS:-4}
       MONGO_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/?authSource=admin
       DELIVERY_FEE_SATANG: ${DELIVERY_FEE_SATANG:-1500}
       AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env}

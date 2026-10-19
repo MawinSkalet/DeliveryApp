@@ -119,7 +119,7 @@ class TestProductsApi(unittest.TestCase):
     def test_mongo_failure_removes_new_inventory(self) -> None:
         payload = self._payload()
         with patch(
-            "app.products.MongoClient",
+            "app.products.get_mongo_client",
             side_effect=ServerSelectionTimeoutError("simulated catalog outage"),
         ):
             response = self.client.post(

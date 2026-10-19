@@ -142,6 +142,8 @@ Order creation protects shared inventory with PostgreSQL row locks (`SELECT ... 
 
 `GET /api/v1/orders` selects only response fields and order-item fields in one `LEFT JOIN` query. It paginates orders before joining their items and groups the returned rows in memory, avoiding per-order queries while preserving the response format.
 
+`GET /api/v1/products` uses a MongoDB field projection for the public product fields and an index on `(restaurant_id, active, _id)`. `GET /api/v1/users/{user_id}` and the login endpoint select only their response/authentication fields from PostgreSQL.
+
 ### Concurrency verification
 
 With the Compose services running and migrations applied, run the dedicated 20-request last-unit race test:
@@ -154,15 +156,15 @@ It creates disposable test records, sends 20 simultaneous orders for one unit, a
 
 ### Automated load test
 
-Prepare an active customer bearer token, a restaurant ID, and 50 distinct active product IDs from that restaurant with available stock. Each VU uses a different inventory row. Every k6 iteration creates a fresh order using a unique idempotency key, then cancels that order once; it does not reuse an order ID. Generate a new run ID for every benchmark so idempotency keys cannot replay orders from an earlier test. Run from the repository root. This PowerShell command runs k6 in Docker Desktop without installing it on the host:
+Prepare an active customer bearer token, a restaurant ID, and 50 distinct active product IDs from that restaurant with available stock. Each VU uses a different inventory row. Every k6 iteration reads the latest page of orders, creates a fresh order using a unique idempotency key, then cancels that order once; it does not reuse an order ID. The VUs start in a staggered pattern and pace each read/create/cancel cycle at 5 seconds by default (`ITERATION_PERIOD_MS` is configurable) to produce steady load without synchronized write bursts. Generate a new run ID for every benchmark so idempotency keys cannot replay orders from an earlier test. Run from the repository root. This PowerShell command runs k6 in Docker Desktop without installing it on the host:
 
 ```powershell
 $env:API_TOKEN = "<customer bearer token>"
 $env:RESTAURANT_ID = "<restaurant UUID>"
 $env:PRODUCT_IDS = "<50 comma-separated active product UUIDs>"
 $env:RUN_ID = [guid]::NewGuid().ToString("N")
-docker run --rm --add-host=host.docker.internal:host-gateway `
-  -e "API_URL=http://host.docker.internal:8000/api/v1/orders" `
+docker run --rm --network deliveryapp_default `
+  -e "API_URL=http://api:8000/api/v1/orders" `
   -e "API_TOKEN=$env:API_TOKEN" `
   -e "RESTAURANT_ID=$env:RESTAURANT_ID" `
   -e "PRODUCT_IDS=$env:PRODUCT_IDS" `
@@ -170,6 +172,47 @@ docker run --rm --add-host=host.docker.internal:host-gateway `
   -v "${PWD}:/work" -w /work grafana/k6:latest run ./k6_script.js
 ```
 
-The script runs 50 virtual users for three minutes. k6 enforces p95 < 200 ms, p99 < 500 ms, and HTTP errors < 1%. Each run generates `cp3-k6-report.md` with throughput by 10-second interval, latency/error metrics, and Mermaid charts, plus `cp3-k6-summary.json` with the raw k6 summary.
+The script runs 50 virtual users for three minutes. k6 enforces p95 < 200 ms and p99 < 500 ms for overall requests and separately for order-list reads, order creation, and cancellation, with HTTP errors < 1% and checks > 99%. The report evaluates RPS stability over the middle 160 seconds and marks it as passing only when the max-to-min 10-second window spread is below 20% of the mean. Each run generates `cp3-k6-report.md` with throughput by 10-second interval, latency/error metrics, and Mermaid charts, plus `cp3-k6-summary.json` with the raw k6 summary.
 
-The checked-in benchmark report and summary are from the current write workload, with separate stock rows assigned to all 50 VUs and an RPS chart in 10-second intervals. The measured run exceeded the p95 and p99 latency targets; see `cp3-k6-report.md` before making performance claims.
+The API reuses its PostgreSQL connection pool and MongoDB client across requests. It starts four Uvicorn workers by default (`API_WORKERS=4`), with a PostgreSQL pool of 2–20 connections per worker (`DB_POOL_MIN_SIZE=2`, `DB_POOL_MAX_SIZE=20`). This caps the API's PostgreSQL pools at 80 connections so they leave room under PostgreSQL's default 100-connection limit. Tune the worker and pool settings together for the deployment size.
+
+
+### CP3 performance evidence
+
+Latest local Compose benchmark: 50 VUs for 180 seconds. Each VU runs one order-list read, fresh order creation, and cancellation every five seconds using its own inventory row. Full k6 output and charts are in [cp3-k6-report.md](cp3-k6-report.md); raw summary is in [cp3-k6-summary.json](cp3-k6-summary.json).
+
+| Metric | Result | CP3 target | Status |
+| --- | ---: | ---: | --- |
+| Load profile | 50 VUs for 180 seconds | 50 VUs for 180 seconds | Pass |
+| Read/write flow | 1,800 reads; 1,800 orders created and cancelled | Concurrent read/write transactions | Pass |
+| Throughput | 29.20 requests/s; 30.00–30.00 across 10-second windows (0.0% spread) | Stable RPS | Pass |
+| Overall p95 | 54.49 ms | < 200 ms | Pass |
+| Overall p99 | 65.26 ms | < 500 ms | Pass |
+| Order-list read p95 / p99 | 8.43 / 14.41 ms | < 200 / < 500 ms | Pass |
+| Create p95 / p99 | 57.71 / 75.90 ms | < 200 / < 500 ms | Pass |
+| Cancel p95 / p99 | 54.89 / 62.23 ms | < 200 / < 500 ms | Pass |
+| HTTP errors | 0.000% | < 1% | Pass |
+| Check pass rate | 100.00% | > 99% | Pass |
+
+```mermaid
+xychart-beta
+    x-axis ["p95 actual", "p95 target", "p99 actual", "p99 target"]
+    y-axis "Latency (ms)" 0 --> 550
+    bar [54.49, 200, 65.26, 500]
+```
+
+```mermaid
+xychart-beta
+    x-axis ["Actual", "Target"]
+    y-axis "HTTP errors (%)" 0 --> 1.1
+    bar [0.000, 1]
+```
+
+```mermaid
+xychart-beta
+    x-axis "Time (seconds)" ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "100", "110", "120", "130", "140", "150", "160", "170"]
+    y-axis "Requests/s" 0 --> 30
+    line [30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00, 30.00]
+```
+
+The earlier write-only baseline from commit `75b6265` is retained in project history: it had no reads, p95 537.14 ms, and p99 1,014.01 ms. The table and charts above report the current mixed read/write run.

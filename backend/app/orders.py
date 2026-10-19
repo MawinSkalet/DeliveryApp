@@ -1,18 +1,19 @@
 import hashlib
 import json
 import os
+from contextlib import AbstractContextManager
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import psycopg
 from fastapi import APIRouter, Depends, Header, Query, Response
 from pydantic import BaseModel, Field
-from psycopg.rows import dict_row
-from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
+from app.db import get_connection
 from app.errors import ApiError
 from app.identity import current_customer_id
+from app.mongo import get_mongo_client
 
 router = APIRouter(prefix="/api/v1/orders", tags=["Orders"])
 
@@ -27,16 +28,16 @@ class OrderInput(BaseModel):
     items: list[OrderItemInput] = Field(min_length=1, max_length=100)
 
 
-def _connection() -> psycopg.Connection:
-    url = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
-    return psycopg.connect(url, row_factory=dict_row)
+def _connection() -> AbstractContextManager[psycopg.Connection]:
+    return get_connection()
 
 
 def _products(product_ids: list[str]) -> dict[str, dict]:
     try:
-        with MongoClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=3000) as client:
-            documents = client.deliveryapp.products.find({"_id": {"$in": product_ids}})
-            return {document["_id"]: document for document in documents}
+        documents = get_mongo_client().deliveryapp.products.find(
+            {"_id": {"$in": product_ids}}
+        )
+        return {document["_id"]: document for document in documents}
     except PyMongoError as error:
         raise ApiError(503, "CATALOG_UNAVAILABLE", "Product catalog is unavailable") from error
 
@@ -55,6 +56,10 @@ def _order(connection: psycopg.Connection, order_id: UUID, customer_id: UUID) ->
            FROM order_items WHERE order_id = %s ORDER BY product_id""",
         (order_id,),
     ).fetchall()
+    return _serialize_order(row, items)
+
+
+def _serialize_order(row: dict, items: list[dict]) -> dict:
     return {
         "id": str(row["id"]),
         "customer_id": str(row["customer_id"]),
@@ -95,25 +100,28 @@ def create_order(
     try:
         with _connection() as connection:
             # The advisory lock serializes retries for the same customer and key.
-            connection.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                (f"{x_user_id}:{idempotency_key}",),
-            )
-            existing = connection.execute(
-                "SELECT id, request_hash FROM orders WHERE customer_id = %s AND idempotency_key = %s",
-                (x_user_id, idempotency_key),
-            ).fetchone()
+            with connection.pipeline():
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (f"{x_user_id}:{idempotency_key}",),
+                )
+                existing_cursor = connection.execute(
+                    "SELECT id, request_hash FROM orders WHERE customer_id = %s AND idempotency_key = %s",
+                    (x_user_id, idempotency_key),
+                )
+            existing = existing_cursor.fetchone()
             if existing:
                 if existing["request_hash"] != request_hash:
                     raise ApiError(409, "IDEMPOTENCY_CONFLICT", "Idempotency key was used for a different order")
                 response.status_code = 200
                 return _order(connection, existing["id"], x_user_id)
 
-            customer = connection.execute("SELECT 1 FROM users WHERE id = %s", (x_user_id,)).fetchone()
-            restaurant = connection.execute(
-                "SELECT 1 FROM restaurants WHERE id = %s", (body.restaurant_id,)
+            participants = connection.execute(
+                """SELECT EXISTS (SELECT 1 FROM users WHERE id = %s) AS customer_exists,
+                          EXISTS (SELECT 1 FROM restaurants WHERE id = %s) AS restaurant_exists""",
+                (x_user_id, body.restaurant_id),
             ).fetchone()
-            if not customer or not restaurant:
+            if not participants["customer_exists"] or not participants["restaurant_exists"]:
                 raise ApiError(404, "PARTICIPANT_NOT_FOUND", "Customer or restaurant not found")
 
             catalog = _products(product_ids)
@@ -132,50 +140,69 @@ def create_order(
                     raise ApiError(404, "PRODUCT_NOT_FOUND", "Product is unavailable at this restaurant")
 
             quantities = {str(item.product_id): item.quantity for item in body.items}
-            for product_id in sorted(product_ids):
-                stock = connection.execute(
-                    """SELECT quantity FROM inventory
-                       WHERE product_id = %s AND restaurant_id = %s FOR UPDATE""",
-                    (UUID(product_id), body.restaurant_id),
-                ).fetchone()
-                if stock is None or stock["quantity"] < quantities[product_id]:
-                    raise ApiError(409, "OUT_OF_STOCK", "Insufficient stock")
+            stock_rows = connection.execute(
+                """SELECT product_id, quantity FROM inventory
+                   WHERE restaurant_id = %s AND product_id = ANY(%s)
+                   ORDER BY product_id FOR UPDATE""",
+                (body.restaurant_id, [UUID(product_id) for product_id in product_ids]),
+            ).fetchall()
+            stock_by_product = {str(row["product_id"]): row["quantity"] for row in stock_rows}
+            if any(
+                stock_by_product.get(product_id, 0) < quantities[product_id]
+                for product_id in product_ids
+            ):
+                raise ApiError(409, "OUT_OF_STOCK", "Insufficient stock")
 
             subtotal = sum(catalog[product_id]["price_satang"] * quantities[product_id] for product_id in product_ids)
             fee = int(os.getenv("DELIVERY_FEE_SATANG", "1500"))
             order_id = uuid4()
-            connection.execute(
-                """INSERT INTO orders
-                   (id, customer_id, restaurant_id, status, subtotal_satang,
-                    delivery_fee, total_satang, idempotency_key, request_hash)
-                   VALUES (%s, %s, %s, 'PLACED', %s, %s, %s, %s, %s)""",
-                (
-                    order_id, x_user_id, body.restaurant_id, subtotal,
-                    Decimal(fee) / 100, subtotal + fee, idempotency_key, request_hash,
-                ),
-            )
-            for product_id in product_ids:
-                product = catalog[product_id]
-                quantity = quantities[product_id]
-                connection.execute(
-                    """INSERT INTO order_items
-                       (id, order_id, product_id, product_name, quantity,
-                        unit_price_satang, line_total_satang)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            response_items = []
+            with connection.pipeline():
+                order_cursor = connection.execute(
+                    """INSERT INTO orders
+                       (id, customer_id, restaurant_id, status, subtotal_satang,
+                        delivery_fee, total_satang, idempotency_key, request_hash)
+                       VALUES (%s, %s, %s, 'PLACED', %s, %s, %s, %s, %s)
+                       RETURNING id, customer_id, restaurant_id, status, subtotal_satang,
+                                 delivery_fee, total_satang, created_at""",
                     (
-                        uuid4(), order_id, UUID(product_id), product["name"], quantity,
-                        product["price_satang"], product["price_satang"] * quantity,
+                        order_id, x_user_id, body.restaurant_id, subtotal,
+                        Decimal(fee) / 100, subtotal + fee, idempotency_key, request_hash,
                     ),
                 )
+                for product_id in product_ids:
+                    product = catalog[product_id]
+                    quantity = quantities[product_id]
+                    connection.execute(
+                        """INSERT INTO order_items
+                           (id, order_id, product_id, product_name, quantity,
+                            unit_price_satang, line_total_satang)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                        (
+                            uuid4(), order_id, UUID(product_id), product["name"], quantity,
+                            product["price_satang"], product["price_satang"] * quantity,
+                        ),
+                    )
+                    connection.execute(
+                        "UPDATE inventory SET quantity = quantity - %s WHERE product_id = %s",
+                        (quantity, UUID(product_id)),
+                    )
+                    response_items.append(
+                        {
+                            "product_id": UUID(product_id),
+                            "product_name": product["name"],
+                            "quantity": quantity,
+                            "unit_price_satang": product["price_satang"],
+                            "line_total_satang": product["price_satang"] * quantity,
+                        }
+                    )
                 connection.execute(
-                    "UPDATE inventory SET quantity = quantity - %s WHERE product_id = %s",
-                    (quantity, UUID(product_id)),
+                    "INSERT INTO order_status_history (id, order_id, status) VALUES (%s, %s, 'PLACED')",
+                    (uuid4(), order_id),
                 )
-            connection.execute(
-                "INSERT INTO order_status_history (id, order_id, status) VALUES (%s, %s, 'PLACED')",
-                (uuid4(), order_id),
-            )
-            return _order(connection, order_id, x_user_id)
+            order_row = order_cursor.fetchone()
+            response_items.sort(key=lambda item: str(item["product_id"]))
+            return _serialize_order(order_row, response_items)
     except psycopg.Error as error:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "Order database is unavailable") from error
 
@@ -252,29 +279,39 @@ def cancel_order(order_id: UUID, x_user_id: UUID = Depends(current_customer_id))
     try:
         with _connection() as connection:
             row = connection.execute(
-                "SELECT status FROM orders WHERE id = %s AND customer_id = %s FOR UPDATE",
+                """SELECT id, customer_id, restaurant_id, status, subtotal_satang,
+                          delivery_fee, total_satang, created_at
+                   FROM orders WHERE id = %s AND customer_id = %s FOR UPDATE""",
                 (order_id, x_user_id),
             ).fetchone()
             if row is None:
                 raise ApiError(404, "ORDER_NOT_FOUND", "Order not found")
             if row["status"] == "CANCELLED":
-                return _order(connection, order_id, x_user_id)
+                items = connection.execute(
+                    """SELECT product_id, product_name, quantity, unit_price_satang, line_total_satang
+                       FROM order_items WHERE order_id = %s ORDER BY product_id""",
+                    (order_id,),
+                ).fetchall()
+                return _serialize_order(row, items)
             if row["status"] != "PLACED":
                 raise ApiError(409, "CANNOT_CANCEL", "Only placed orders may be cancelled")
             items = connection.execute(
-                "SELECT product_id, quantity FROM order_items WHERE order_id = %s ORDER BY product_id",
+                """SELECT product_id, product_name, quantity, unit_price_satang, line_total_satang
+                   FROM order_items WHERE order_id = %s ORDER BY product_id""",
                 (order_id,),
             ).fetchall()
-            for item in items:
+            with connection.pipeline():
+                for item in items:
+                    connection.execute(
+                        "UPDATE inventory SET quantity = quantity + %s WHERE product_id = %s",
+                        (item["quantity"], item["product_id"]),
+                    )
+                connection.execute("UPDATE orders SET status = 'CANCELLED' WHERE id = %s", (order_id,))
                 connection.execute(
-                    "UPDATE inventory SET quantity = quantity + %s WHERE product_id = %s",
-                    (item["quantity"], item["product_id"]),
+                    "INSERT INTO order_status_history (id, order_id, status) VALUES (%s, %s, 'CANCELLED')",
+                    (uuid4(), order_id),
                 )
-            connection.execute("UPDATE orders SET status = 'CANCELLED' WHERE id = %s", (order_id,))
-            connection.execute(
-                "INSERT INTO order_status_history (id, order_id, status) VALUES (%s, %s, 'CANCELLED')",
-                (uuid4(), order_id),
-            )
-            return _order(connection, order_id, x_user_id)
+            row["status"] = "CANCELLED"
+            return _serialize_order(row, items)
     except psycopg.Error as error:
         raise ApiError(503, "DATABASE_UNAVAILABLE", "Order database is unavailable") from error

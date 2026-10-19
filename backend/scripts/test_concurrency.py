@@ -4,6 +4,7 @@ import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from uuid import uuid4
@@ -16,7 +17,7 @@ API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/api/v1/orders").rstrip("/"
 ATTEMPTS = 20
 
 
-def call(url: str, token: str, body: dict, key: str) -> int:
+def call(url: str, token: str, body: dict, key: str, start_barrier: Barrier) -> int:
     request = Request(
         url,
         data=json.dumps(body).encode(),
@@ -27,6 +28,7 @@ def call(url: str, token: str, body: dict, key: str) -> int:
         },
         method="POST",
     )
+    start_barrier.wait(timeout=30)
     try:
         with urlopen(request, timeout=30) as response:
             return response.status
@@ -80,6 +82,7 @@ def main() -> None:
             "restaurant_id": restaurant_id,
             "items": [{"product_id": product_id, "quantity": 1}],
         }
+        start_barrier = Barrier(ATTEMPTS)
         with ThreadPoolExecutor(max_workers=ATTEMPTS) as executor:
             futures = [
                 executor.submit(
@@ -88,6 +91,7 @@ def main() -> None:
                     token,
                     body,
                     f"last-unit-race-{index}",
+                    start_barrier,
                 )
                 for index in range(ATTEMPTS)
             ]

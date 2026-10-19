@@ -1,4 +1,3 @@
-import os
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -6,11 +5,13 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator
 from psycopg.errors import ForeignKeyViolation, UniqueViolation
-from pymongo import ASCENDING, MongoClient
+from pymongo import ASCENDING
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
+from app.db import get_connection
 from app.errors import ApiError
 from app.identity import current_user_claims
+from app.mongo import get_mongo_client
 
 router = APIRouter(prefix="/api/v1/products", tags=["Products"])
 
@@ -32,17 +33,12 @@ class ProductInput(BaseModel):
         return value
 
 
-def _database_url() -> str:
-    return os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://", 1)
-
-
 def ensure_catalog_indexes() -> None:
-    with MongoClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=3000) as client:
-        db = client.deliveryapp
-        db.products.create_index(
-            [("restaurant_id", ASCENDING), ("active", ASCENDING), ("_id", ASCENDING)],
-            name="restaurant_active_id",
-        )
+    db = get_mongo_client().deliveryapp
+    db.products.create_index(
+        [("restaurant_id", ASCENDING), ("active", ASCENDING), ("_id", ASCENDING)],
+        name="restaurant_active_id",
+    )
 
 
 def _public_product(document: dict) -> dict:
@@ -64,16 +60,27 @@ def list_products(
 ) -> dict:
     query = {"restaurant_id": str(restaurant_id), "active": True}
     try:
-        with MongoClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=3000) as client:
-            collection = client.deliveryapp.products
-            total = collection.count_documents(query)
-            documents = collection.find(query).sort("_id", ASCENDING).skip(offset).limit(limit)
-            return {
-                "items": [_public_product(document) for document in documents],
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-            }
+        collection = get_mongo_client().deliveryapp.products
+        total = collection.count_documents(query)
+        projection = {
+            "restaurant_id": 1,
+            "name": 1,
+            "price_satang": 1,
+            "active": 1,
+            "attributes": 1,
+        }
+        documents = (
+            collection.find(query, projection)
+            .sort("_id", ASCENDING)
+            .skip(offset)
+            .limit(limit)
+        )
+        return {
+            "items": [_public_product(document) for document in documents],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
     except PyMongoError as error:
         raise ApiError(503, "CATALOG_UNAVAILABLE", "Product catalog is unavailable") from error
 
@@ -94,7 +101,7 @@ def create_product(payload: ProductInput, claims: dict = Depends(current_user_cl
     }
 
     try:
-        with psycopg.connect(_database_url()) as connection:
+        with get_connection() as connection:
             restaurant = connection.execute(
                 "SELECT 1 FROM restaurants WHERE id = %s", (payload.restaurant_id,)
             ).fetchone()
@@ -112,14 +119,13 @@ def create_product(payload: ProductInput, claims: dict = Depends(current_user_cl
         raise ApiError(503, "DATABASE_UNAVAILABLE", "Inventory database is unavailable") from error
 
     try:
-        with MongoClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=3000) as client:
-            client.deliveryapp.products.insert_one(document)
+        get_mongo_client().deliveryapp.products.insert_one(document)
     except (PyMongoError, DuplicateKeyError) as error:
         # MongoDB writes cannot share the PostgreSQL transaction. Remove the new
         # stock row when catalog publication fails; verification catches any
         # orphan left by a process crash or an ambiguous network failure.
         try:
-            with psycopg.connect(_database_url()) as connection:
+            with get_connection() as connection:
                 connection.execute("DELETE FROM inventory WHERE product_id = %s", (product_id,))
         except psycopg.Error as cleanup_error:
             raise ApiError(503, "RECONCILIATION_REQUIRED", "Product creation needs reconciliation") from cleanup_error

@@ -1,5 +1,6 @@
 import os
 from contextlib import contextmanager
+from threading import Lock
 from typing import Generator
 
 import psycopg
@@ -11,6 +12,7 @@ except ImportError:
     ConnectionPool = None
 
 _pool: "ConnectionPool | None" = None
+_pool_lock = Lock()
 
 
 def get_db_url() -> str:
@@ -23,18 +25,24 @@ def get_db_url() -> str:
 
 def get_pool() -> "ConnectionPool | None":
     global _pool
-    if _pool is None and ConnectionPool is not None:
-        try:
-            _pool = ConnectionPool(
-                get_db_url(),
-                min_size=2,
-                max_size=20,
-                timeout=10.0,
-                open=True,
-                kwargs={"row_factory": dict_row},
-            )
-        except Exception:
-            _pool = None
+    if _pool is not None or ConnectionPool is None:
+        return _pool
+
+    with _pool_lock:
+        if _pool is None:
+            try:
+                min_size = int(os.getenv("DB_POOL_MIN_SIZE", "2"))
+                max_size = int(os.getenv("DB_POOL_MAX_SIZE", "50"))
+                _pool = ConnectionPool(
+                    get_db_url(),
+                    min_size=min_size,
+                    max_size=max_size,
+                    timeout=10.0,
+                    open=True,
+                    kwargs={"row_factory": dict_row},
+                )
+            except Exception:
+                _pool = None
     return _pool
 
 
@@ -51,8 +59,9 @@ def get_connection() -> Generator[psycopg.Connection, None, None]:
 
 def close_pool() -> None:
     global _pool
-    if _pool is not None:
-        try:
-            _pool.close()
-        finally:
-            _pool = None
+    with _pool_lock:
+        if _pool is not None:
+            try:
+                _pool.close()
+            finally:
+                _pool = None
